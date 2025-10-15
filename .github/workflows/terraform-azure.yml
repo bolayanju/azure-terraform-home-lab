@@ -1,0 +1,163 @@
+name: Terraform Azure
+
+on:
+  push:
+    branches: [ main, "**" ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch: {}
+
+env:
+  APPLY_BRANCH: main
+  TF_DIR: terraform
+  TF_PLAN_FILE: tf.plan
+  TF_PLAN_JSON: plan.json
+  TF_VERSION: 1.3.5
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Terraform Init
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform init -input=false -upgrade
+
+      - name: Terraform Validate
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform validate
+
+  security_tests:
+    name: IaC Security (Checkov + tfsec + Gitleaks)
+    runs-on: ubuntu-latest
+    needs: validate
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Checkov Scan
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: .
+          output_format: sarif
+          output_file_path: checkov.sarif
+
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: checkov.sarif
+
+      - name: tfsec Scan
+        uses: aquasecurity/tfsec-action@v1.0.3
+        with:
+          working_directory: ${{ env.TF_DIR }}
+
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  plan:
+    name: Terraform Plan
+    runs-on: ubuntu-latest
+    needs: [validate, security_tests]
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Terraform Init
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform init -input=false
+
+      - name: Terraform Plan
+        id: plan
+        working-directory: ${{ env.TF_DIR }}
+        run: |
+          terraform plan -input=false -out=${{ env.TF_PLAN_FILE }}
+          terraform show -json ${{ env.TF_PLAN_FILE }} > ${{ env.TF_PLAN_JSON }}
+          cat ${{ env.TF_PLAN_JSON }} | jq -r \
+            '([.resource_changes[]?.change.actions?]|flatten) |
+            {"create": (map(select(.=="create"))|length),
+             "update": (map(select(.=="update"))|length),
+             "delete": (map(select(.=="delete"))|length)}' > summary.json
+          echo "PLAN_SUMMARY=$(cat summary.json)" >> $GITHUB_OUTPUT
+
+      - name: Upload plan artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tf-plan
+          path: |
+            ${{ env.TF_DIR }}/${{ env.TF_PLAN_FILE }}
+            ${{ env.TF_DIR }}/${{ env.TF_PLAN_JSON }}
+            ${{ env.TF_DIR }}/summary.json
+          retention-days: 1
+
+      - name: Job Summary
+        run: echo '${{ steps.plan.outputs.PLAN_SUMMARY }}' >> $GITHUB_STEP_SUMMARY
+
+  apply:
+    name: Terraform Apply (manual, main only)
+    runs-on: ubuntu-latest
+    needs: plan
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    environment:
+      name: prod   # we’ll protect this in settings
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Download plan artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: tf-plan
+          path: ${{ env.TF_DIR }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Terraform Init (reconfigure backend)
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform init -input=false -reconfigure
+
+      - name: Terraform Apply (uses saved plan)
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform apply -input=false ${{ env.TF_PLAN_FILE }}
