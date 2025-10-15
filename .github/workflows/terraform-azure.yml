@@ -19,8 +19,8 @@ jobs:
     name: Validate
     runs-on: ubuntu-latest
     permissions:
-        id-token: write       # <-- this line gives access to the OIDC token
-        contents: read 
+      id-token: write       # needed for OIDC token
+      contents: read 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -39,11 +39,22 @@ jobs:
 
       - name: Terraform Init
         working-directory: ${{ env.TF_DIR }}
+        env:
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_USE_OIDC: true
         run: terraform init -input=false -upgrade
 
       - name: Terraform Validate
         working-directory: ${{ env.TF_DIR }}
+        env:
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_USE_OIDC: true
         run: terraform validate
+    
 
   security_tests:
     name: IaC Security (Checkov + tfsec + Gitleaks)
@@ -75,6 +86,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+
   plan:
     name: Terraform Plan
     runs-on: ubuntu-latest
@@ -100,11 +112,21 @@ jobs:
 
       - name: Terraform Init
         working-directory: ${{ env.TF_DIR }}
+        env:
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_USE_OIDC: true
         run: terraform init -input=false
 
       - name: Terraform Plan
         id: plan
         working-directory: ${{ env.TF_DIR }}
+        env:
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_USE_OIDC: true
         run: |
           terraform plan -input=false -out=${{ env.TF_PLAN_FILE }}
           terraform show -json ${{ env.TF_PLAN_FILE }} > ${{ env.TF_PLAN_JSON }}
@@ -127,6 +149,7 @@ jobs:
 
       - name: Job Summary
         run: echo '${{ steps.plan.outputs.PLAN_SUMMARY }}' >> $GITHUB_STEP_SUMMARY
+
 
   apply:
     name: Terraform Apply (manual, main only)
@@ -159,8 +182,18 @@ jobs:
 
       - name: Terraform Init (reconfigure backend)
         working-directory: ${{ env.TF_DIR }}
+        env:
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_USE_OIDC: true
         run: terraform init -input=false -reconfigure
 
       - name: Terraform Apply (uses saved plan)
         working-directory: ${{ env.TF_DIR }}
+        env:
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_USE_OIDC: true
         run: terraform apply -input=false ${{ env.TF_PLAN_FILE }}
