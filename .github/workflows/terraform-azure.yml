@@ -18,6 +18,9 @@ jobs:
   validate:
     name: Validate
     runs-on: ubuntu-latest
+    permissions:
+        id-token: write       # <-- this line gives access to the OIDC token
+        contents: read 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
