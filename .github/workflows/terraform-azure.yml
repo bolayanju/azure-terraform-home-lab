@@ -7,6 +7,8 @@ on:
     branches: [ main ]
   workflow_dispatch: {}
 
+permissions:
+  contents: read   # for checkout
 env:
   APPLY_BRANCH: main
   TF_DIR: terraform
