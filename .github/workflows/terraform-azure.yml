@@ -162,6 +162,7 @@ jobs:
           path: |
             ${{ env.TF_DIR }}/${{ env.TF_PLAN_FILE }}
             ${{ env.TF_DIR }}/${{ env.TF_PLAN_JSON }}
+            ${{ env.TF_DIR }}/.terraform.lock.hcl
           retention-days: 1
 
 
@@ -202,7 +203,7 @@ jobs:
           ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           ARM_USE_OIDC: true
-        run: terraform init -input=false -reconfigure
+        run: terraform init -input=false -reconfigure -lockfile=reaonly
 
       - name: Terraform Apply (uses saved plan)
         working-directory: ${{ env.TF_DIR }}
