@@ -101,7 +101,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-
   plan:
     name: Terraform Plan
     runs-on: ubuntu-latest
@@ -162,8 +161,6 @@ jobs:
             ${{ env.TF_DIR }}/summary.json
           retention-days: 1
 
-      - name: Job Summary
-        run: echo '${{ steps.plan.outputs.PLAN_SUMMARY }}' >> $GITHUB_STEP_SUMMARY
 
 
   apply:
@@ -212,3 +209,5 @@ jobs:
           ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           ARM_USE_OIDC: true
         run: terraform apply -input=false ${{ env.TF_PLAN_FILE }}
+
+        
