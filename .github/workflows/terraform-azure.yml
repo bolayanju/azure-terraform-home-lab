@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: read   # for checkout
+  security-events: write  # for Code Scanning alerts
 env:
   APPLY_BRANCH: main
   TF_DIR: terraform
