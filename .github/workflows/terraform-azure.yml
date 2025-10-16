@@ -44,7 +44,9 @@ jobs:
           ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           ARM_USE_OIDC: true
-        run: terraform init -input=false -upgrade
+        run: |
+            rm -rf .terraform 
+            terraform init -input=false  -reconfigure -upgrade
 
       - name: Terraform Validate
         working-directory: ${{ env.TF_DIR }}
