@@ -8,8 +8,9 @@ on:
   workflow_dispatch: {}
 
 permissions:
-  contents: read   # for checkout
-  security-events: write  # for Code Scanning alerts
+  contents: read               # for checkout
+  security-events: write       # for Code Scanning alerts
+
 env:
   APPLY_BRANCH: main
   TF_DIR: terraform
@@ -18,12 +19,13 @@ env:
   TF_VERSION: 1.3.5
 
 #checkov:ignore=CKV2_GHA_1: "Ensure top-level permissions are not set to write-all"
+
 jobs:
   validate:
     name: Validate
     runs-on: ubuntu-latest
     permissions:
-      id-token: write       # needed for OIDC token
+      id-token: write
       contents: read 
     steps:
       - name: Checkout
@@ -40,14 +42,6 @@ jobs:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          run: 
-               rm -rf .terraform
-               rm -f .terraform.lock.hcl
-            terraform init -input=false -reconfigure -upgrade \
-            -backend-config="resource_group_name=bo-homelab-tfstate" \
-            -backend-config="storage_account_name=boazuretfstate" \
-            -backend-config="container_name=tfstate" \
-            -backend-config="key=terraform.tfstate"
 
       - name: Terraform Init
         working-directory: ${{ env.TF_DIR }}
@@ -57,9 +51,13 @@ jobs:
           ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           ARM_USE_OIDC: true
         run: |
-            rm -rf .terraform 
-            rm -f .terraform.lock.hcl
-            terraform init -input=false  -reconfigure -upgrade
+          rm -rf .terraform 
+          rm -f .terraform.lock.hcl
+          terraform init -input=false -reconfigure -upgrade \
+            -backend-config="resource_group_name=bo-homelab-tfstate" \
+            -backend-config="storage_account_name=boazuretfstate" \
+            -backend-config="container_name=tfstate" \
+            -backend-config="key=terraform.tfstate"
 
       - name: Terraform Validate
         working-directory: ${{ env.TF_DIR }}
@@ -100,6 +98,7 @@ jobs:
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
 
   plan:
     name: Terraform Plan
@@ -144,12 +143,17 @@ jobs:
         run: |
           terraform plan -input=false -out=${{ env.TF_PLAN_FILE }}
           terraform show -json ${{ env.TF_PLAN_FILE }} > ${{ env.TF_PLAN_JSON }}
-          cat ${{ env.TF_PLAN_JSON }} | jq -r \
+
+          # ✅ Compact, single-line JSON for GitHub output
+          PLAN_SUMMARY=$(jq -c -r \
             '([.resource_changes[]?.change.actions?]|flatten) |
-            {"create": (map(select(.=="create"))|length),
-             "update": (map(select(.=="update"))|length),
-             "delete": (map(select(.=="delete"))|length)}' > summary.json
-          echo "PLAN_SUMMARY=$(cat summary.json)" >> $GITHUB_OUTPUT
+             {"create": (map(select(.=="create"))|length),
+              "update": (map(select(.=="update"))|length),
+              "delete": (map(select(.=="delete"))|length)}' \
+             ${{ env.TF_PLAN_JSON }})
+
+          echo "PLAN_SUMMARY=$PLAN_SUMMARY" >> $GITHUB_OUTPUT
+          echo "Terraform plan summary: $PLAN_SUMMARY" >> $GITHUB_STEP_SUMMARY
 
       - name: Upload plan artifacts
         uses: actions/upload-artifact@v4
@@ -158,7 +162,6 @@ jobs:
           path: |
             ${{ env.TF_DIR }}/${{ env.TF_PLAN_FILE }}
             ${{ env.TF_DIR }}/${{ env.TF_PLAN_JSON }}
-            ${{ env.TF_DIR }}/summary.json
           retention-days: 1
 
 
@@ -169,7 +172,7 @@ jobs:
     needs: plan
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     environment:
-      name: prod   # we’ll protect this in settings
+      name: prod
     permissions:
       contents: read
       id-token: write
@@ -209,5 +212,3 @@ jobs:
           ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           ARM_USE_OIDC: true
         run: terraform apply -input=false ${{ env.TF_PLAN_FILE }}
-
-        
